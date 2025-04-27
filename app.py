@@ -13,7 +13,7 @@ st.set_page_config(layout="wide", page_title="🌱 Crop Advisor Pro")
 @st.cache_resource
 def load_data_and_train():
     # Load data with correct column names
-    df = pd.read_csv("C:/Users/Wale/Documents/GitHub/Crop Advisor Pro/Crop_Recommendation.csv")
+    df = pd.read_csv("Crop_Recommendation.csv")
     
     # Rename columns to simpler names for easier reference
     df = df.rename(columns={

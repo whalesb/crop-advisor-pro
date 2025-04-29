@@ -1,43 +1,29 @@
-# crop_recommender.py - Optimized Combined Version with Soil Moisture Mapping
+# crop_recommender.py - Updated with explicit Soil Moisture input
 import streamlit as st
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
-# --- Page config ---
 st.set_page_config(layout="wide", page_title="🌱 Smart Crop Advisor", page_icon="🌾")
-
-# --- Helper function to map Rainfall to Soil Moisture ---
-def calculate_soil_moisture(rainfall_mm):
-    # Linear mapping from Rainfall to Soil Moisture percentage
-    min_rainfall = 20.2
-    max_rainfall = 298.6
-    min_moisture = 10
-    max_moisture = 90
-    moisture = min_moisture + (rainfall_mm - min_rainfall) * (max_moisture - min_moisture) / (max_rainfall - min_rainfall)
-    return round(moisture, 1)
 
 # --- Data Loading and Model Training ---
 @st.cache_resource
 def load_data_and_train():
-    # Load dataset
     df = pd.read_csv("Crop_Recommendation.csv")
 
-    # Rename columns
     df = df.rename(columns={
         'Nitrogen': 'N',
         'Phosphorus': 'P',
         'Potassium': 'K',
-        'pH_Value': 'pH'
+        'pH_Value': 'pH',
+        'Soil_Moisture': 'Soil_Moisture'  # Ensure this column is in the CSV
     })
 
-    # Train model
     le = LabelEncoder()
     df['Crop'] = le.fit_transform(df['Crop'])
     model = RandomForestClassifier()
-    model.fit(df.drop('Crop', axis=1), df['Crop'])
+    model.fit(df.drop(['Crop', 'Rainfall'], axis=1), df['Crop'])  # Exclude Rainfall during model training
 
-    # Calculate comprehensive crop statistics
     crop_stats = {}
     for crop in le.classes_:
         crop_data = df[df['Crop'] == le.transform([crop])[0]]
@@ -48,17 +34,15 @@ def load_data_and_train():
             'Temperature': (crop_data['Temperature'].min(), crop_data['Temperature'].max()),
             'Humidity': (crop_data['Humidity'].min(), crop_data['Humidity'].max()),
             'pH': (crop_data['pH'].min(), crop_data['pH'].max()),
-            'Rainfall': (crop_data['Rainfall'].min(), crop_data['Rainfall'].max())
+            'Soil_Moisture': (crop_data['Soil_Moisture'].min(), crop_data['Soil_Moisture'].max())
         }
         crop_stats[crop] = stats
 
     return model, le, crop_stats
 
-# --- Load model and data ---
 model, le, crop_stats = load_data_and_train()
 all_crops = sorted(le.classes_)
 
-# --- App Layout ---
 st.title("🌾 Smart Crop Advisor")
 st.markdown("""
 *Using average soil nutrient values (N-P-K) with customizable environmental factors*  
@@ -68,10 +52,8 @@ st.markdown("""
 # --- Sidebar Inputs ---
 with st.sidebar:
     st.header("🌿 Crop Selection")
-    selected_crop = st.selectbox("Choose your crop", all_crops, 
-                                 help="Select your desired crop to see its requirements")
-    
-    # Auto-calculated NPK values
+    selected_crop = st.selectbox("Choose your crop", all_crops)
+
     with st.expander("🧪 Auto-calculated Soil Nutrients", expanded=True):
         avg_n = round(crop_stats[selected_crop]['N_avg'], 1)
         avg_p = round(crop_stats[selected_crop]['P_avg'], 1)
@@ -84,27 +66,15 @@ with st.sidebar:
         st.caption("Values calculated from historical growing data")
 
     st.header("🌦️ Environmental Factors")
-
-    temp = st.slider("Temperature (°C)", 8.8, 43.7, 25.0,
-                     help="Average daytime temperature during growing season")
-    humidity = st.slider("Humidity (%)", 14.3, 99.9, 50.0,
-                         help="Average relative humidity")
-    ph = st.slider("Soil pH Level", 3.5, 9.9, 6.5,
-                   help="Soil acidity/alkalinity (7 is neutral)")
-
-    # Rainfall slider
-    rainfall = st.slider("Rainfall (mm)", 20.2, 298.6, 100.0,
-                         help="Annual or seasonal rainfall amount")
-
-    # --- Dynamic Moisture Display ---
-    soil_moisture = calculate_soil_moisture(rainfall)
-    st.caption(f"🌧️ Rainfall: **{rainfall:.1f} mm**  |  🌿 Estimated Soil Moisture: **{soil_moisture}%**")
+    temp = st.slider("Temperature (°C)", 8.8, 43.7, 25.0)
+    humidity = st.slider("Humidity (%)", 14.3, 99.9, 50.0)
+    ph = st.slider("Soil pH Level", 3.5, 9.9, 6.5)
+    soil_moisture = st.slider("Soil Moisture (%)", 10.0, 90.0, 50.0)
 
 # --- Analysis Logic ---
 if st.button("🧑‍🌾 Analyze Growing Conditions", type="primary"):
     st.header("🔍 Analysis Results")
 
-    # Prepare input for analysis
     analysis_data = {
         'N': avg_n,
         'P': avg_p,
@@ -112,13 +82,12 @@ if st.button("🧑‍🌾 Analyze Growing Conditions", type="primary"):
         'Temperature': temp,
         'Humidity': humidity,
         'pH': ph,
-        'Rainfall': rainfall
+        'Soil_Moisture': soil_moisture
     }
 
-    # Suitability check
     requirements = crop_stats[selected_crop]
     violations = []
-    for param in ['Temperature', 'Humidity', 'pH', 'Rainfall']:
+    for param in ['Temperature', 'Humidity', 'pH', 'Soil_Moisture']:  # Removed Rainfall
         min_val, max_val = requirements[param]
         if not (min_val <= analysis_data[param] <= max_val):
             violations.append(f"{param}: {analysis_data[param]} (requires {min_val}-{max_val})")
@@ -139,7 +108,7 @@ if st.button("🧑‍🌾 Analyze Growing Conditions", type="primary"):
         reqs = crop_stats[crop]
         if all(
             reqs[param][0] <= analysis_data[param] <= reqs[param][1]
-            for param in ['Temperature', 'Humidity', 'pH', 'Rainfall']
+            for param in ['Temperature', 'Humidity', 'pH', 'Soil_Moisture']  # Removed Rainfall
         ):
             suitable_crops.append((crop, reqs['N_avg'], reqs['P_avg'], reqs['K_avg']))
 
@@ -152,22 +121,10 @@ if st.button("🧑‍🌾 Analyze Growing Conditions", type="primary"):
                     st.caption(f"Temp: {crop_stats[crop]['Temperature'][0]}–{crop_stats[crop]['Temperature'][1]}°C")
                     st.caption(f"pH: {crop_stats[crop]['pH'][0]}–{crop_stats[crop]['pH'][1]}")
     else:
-        st.warning("No crops perfectly match these conditions. Consider modifying your environment.")
+        st.warning("No crops perfectly match these conditions.")
 
-# --- Additional Information Sections ---
-with st.expander("📚 About This Tool", expanded=False):
-    st.markdown("""
-    **Smart Crop Advisor** helps farmers optimize crop selection by:
-    - Using scientifically calculated average soil nutrient values
-    - Analyzing environmental compatibility
-    - Suggesting alternative crops when needed
-
-    *Why fixed NPK values?*  
-    Without soil sensors, we use historical averages that represent typical successful growing conditions.
-    """)
-
-with st.expander("📊 Complete Crop Requirements", expanded=False):
-    st.write("Detailed growing requirements for all available crops:")
+# --- Crop Requirement Table ---
+with st.expander("📊 Crop Requirement Table", expanded=False):  # Changed the title here
     summary_data = []
     for crop in all_crops:
         stats = crop_stats[crop]
@@ -177,7 +134,7 @@ with st.expander("📊 Complete Crop Requirements", expanded=False):
             'Temp (°C)': f"{stats['Temperature'][0]}–{stats['Temperature'][1]}",
             'Humidity (%)': f"{stats['Humidity'][0]}–{stats['Humidity'][1]}",
             'pH Range': f"{stats['pH'][0]}–{stats['pH'][1]}",
-            'Rainfall (mm)': f"{stats['Rainfall'][0]}–{stats['Rainfall'][1]}"
+            'Soil Moisture (%)': f"{stats['Soil_Moisture'][0]}–{stats['Soil_Moisture'][1]}"
         })
 
     st.dataframe(
